@@ -1,1 +1,48 @@
-
+.input-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    text-align: center;
+  }
+  
+  .input-container form {
+    width: 80%;
+    max-width: 600px;
+  }
+  
+  .form-row {
+    display: flex;
+    align-items: flex-start; /* Align items to the top */
+    width: 100%;
+    gap: 10px; /* Space between textarea and button */
+    margin-bottom: 10px; /* Space between this row and the submit button */
+  }
+  
+  .input-container textarea {
+    flex-grow: 1; /* Allow textarea to grow to fill space */
+    padding: 15px;
+    overflow: hidden; /* Hide the overflow */
+    resize: none; /* Remove the resize handle */
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 0.5rem;
+    resize: vertical; /* Allow vertical resizing */
+  }
+  
+  .input-container .listen-button {
+    padding: 10px 20px;
+    font-size: 1rem;
+    border-radius: 0.5rem;
+    white-space: nowrap;
+    flex-shrink: 0; /* Prevent button from shrinking */
+  }
+  
+  .input-container .submit-button {
+    padding: 10px 20px;
+    font-size: 1rem;
+    border-radius: 0.5rem;
+    white-space: nowrap;
+  }
+  

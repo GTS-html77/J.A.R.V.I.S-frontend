@@ -1,3 +1,4 @@
+import './App.css';
 import React, { useState, useRef, useEffect } from 'react';
 import ListenButton from './components/listen_button/listen_button';
 import SubmitButton from './components/submit_button/submit_button';
@@ -14,6 +15,16 @@ function App() {
   const [error, setError] = useState(null);
   const finalTranscript = useRef('');
   const timer = useRef(null);
+  const handleInput = (e) => {
+    setText(e.target.value);
+  
+    // Set the height to 0 in case the new content is smaller than the old content
+    e.target.style.height = '0';
+  
+    // Set the height to the scrollHeight plus a little extra space to prevent unnecessary row addition
+    e.target.style.height = `${e.target.scrollHeight}px`;
+  };
+  
 
   recognition.onresult = (event) => {
     let interimTranscript = '';
@@ -68,12 +79,20 @@ function App() {
   }, []);
 
   return (
-    <div>
+    <div className="input-container">
       <form onSubmit={(e) => e.preventDefault()}>
-        <input type="text" value={text} onChange={(e) => setText(e.target.value)} />
+        <div className="form-row">
+          <textarea
+            value={text}
+            onChange={handleInput}
+            placeholder="Start speaking..."
+            style={{ height: 'auto' }} // Set initial height to auto
+            rows={1} // Start with a single row
+          />
+          <ListenButton onClick={toggleListen} listening={listening} />
+        </div>
         <SubmitButton onClick={submit} />
       </form>
-      <ListenButton onClick={toggleListen} listening={listening} />
       {error && <p>Error: {error}</p>}
     </div>
   );
