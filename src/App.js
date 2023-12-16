@@ -1,99 +1,96 @@
-import './App.css';
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import TextareaAutosize from 'react-textarea-autosize';
 import ListenButton from './components/listen_button/listen_button';
 import SubmitButton from './components/submit_button/submit_button';
+import ChatLog from './components/chat_log/chat_log';
+import './App.css';
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = new SpeechRecognition();
-
-recognition.continuous = true; // Keep the recognition service going until it's stopped manually
-recognition.interimResults = true; // Report interim results
+recognition.continuous = true;
+recognition.interimResults = true;
 
 function App() {
   const [text, setText] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
   const [listening, setListening] = useState(false);
-  const [error, setError] = useState(null);
-  const finalTranscript = useRef('');
+  const [error, setError] = useState('');
   const timer = useRef(null);
-  const handleInput = (e) => {
-    setText(e.target.value);
-  
-    // Set the height to 0 in case the new content is smaller than the old content
-    e.target.style.height = '0';
-  
-    // Set the height to the scrollHeight plus a little extra space to prevent unnecessary row addition
-    e.target.style.height = `${e.target.scrollHeight}px`;
-  };
-  
 
-  recognition.onresult = (event) => {
-    let interimTranscript = '';
+  const submitMessage = useCallback((submittedText) => {
+    if (submittedText.trim()) {
+      const userMessage = {
+        text: submittedText,
+        timestamp: new Date(),
+        sender: "Sir"
+      };
+      setChatMessages(currentMessages => [...currentMessages, userMessage]);
 
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcript = event.results[i][0].transcript;
-      if (event.results[i].isFinal) finalTranscript.current += transcript;
-      else interimTranscript += transcript;
+      // Simulate AI response
+      const aiResponse = {
+        text: "This is a response from JARVIS.",
+        timestamp: new Date(),
+        sender: "JARVIS"
+      };
+      setChatMessages(currentMessages => [...currentMessages, aiResponse]);
     }
+    setText('');
+  }, []); 
 
-    setText(finalTranscript.current + interimTranscript);
 
-    // Reset the timer every time a result is received
-    clearTimeout(timer.current);
-    timer.current = setTimeout(submit, 10000); // 10 seconds
-  };
+  useEffect(() => {
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map(result => result[0].transcript)
+        .join('');
+      setText(transcript);
 
-  recognition.onend = () => {
-    setListening(false);
-  };
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => submitMessage(transcript), 5000);
+    };
 
-  recognition.onerror = (event) => {
-    // Handle the error event
-    console.log('Speech recognition error:', event.error);
-    setError(event.error);
-  };
+    recognition.onend = () => setListening(false);
+    recognition.onerror = (event) => setError(event.error);
 
+    return () => {
+      recognition.stop();
+      clearTimeout(timer.current);
+    };
+  }, [submitMessage]);
+  
+  
   const toggleListen = () => {
     if (listening) {
       recognition.stop();
-      clearTimeout(timer.current);
     } else {
-      finalTranscript.current = '';
       recognition.start();
     }
-
     setListening(!listening);
   };
 
-  const submit = () => {
-    // Here you would send the text to your backend
-    console.log(text);
-    finalTranscript.current = '';
-    setText('');
-  };
-
-  useEffect(() => {
-    return () => {
-      // Clean up the timer when the component unmounts
-      clearTimeout(timer.current);
-    };
-  }, []);
-
   return (
-    <div className="input-container">
-      <form onSubmit={(e) => e.preventDefault()}>
-        <div className="form-row">
-          <textarea
-            value={text}
-            onChange={handleInput}
-            placeholder="Start speaking..."
-            style={{ height: 'auto' }} // Set initial height to auto
-            rows={1} // Start with a single row
-          />
-          <ListenButton onClick={toggleListen} listening={listening} />
+    <div className="main-container">
+      <div className="left-column"> {/* Left column content */} </div>
+      <div className="center-column"> {/* Center column content */} </div>
+      <div className="right-column">
+        <div className="listen-area">
+          <form onSubmit={(e) => e.preventDefault()}>
+            <div className="form-row">
+              <TextareaAutosize
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Start speaking..."
+                minRows={1}
+                style={{ width: '100%' }}
+              />
+              <ListenButton onClick={toggleListen} listening={listening} />
+            </div>
+            <SubmitButton onClick={() => submitMessage(text)} />
+          </form>
+          {error && <p>Error: {error}</p>}
         </div>
-        <SubmitButton onClick={submit} />
-      </form>
-      {error && <p>Error: {error}</p>}
+        <ChatLog messages={chatMessages} />
+      </div>
     </div>
   );
 }
