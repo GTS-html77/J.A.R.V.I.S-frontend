@@ -16,8 +16,9 @@ function App() {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
   const timer = useRef(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const submitMessage = useCallback((submittedText) => {
+  const submitMessage = useCallback(async (submittedText) => {
     if (submittedText.trim()) {
       const userMessage = {
         text: submittedText,
@@ -26,16 +27,37 @@ function App() {
       };
       setChatMessages(currentMessages => [...currentMessages, userMessage]);
 
-      // Simulate AI response
-      const aiResponse = {
-        text: "This is a response from JARVIS.",
-        timestamp: new Date(),
-        sender: "JARVIS"
-      };
-      setChatMessages(currentMessages => [...currentMessages, aiResponse]);
+      setIsLoading(true);
+      try {
+        const response = await fetch('http://localhost:3001/api/chat/message', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ message: submittedText }),
+          
+        });
+
+        if (!response.ok) {
+          throw new Error('Network response was not ok');
+        }
+
+        const data = await response.json();
+        console.log("Received data from backend:", data);
+        const aiResponse = {
+          text: data.reply,
+          timestamp: new Date(),
+          sender: "JARVIS"
+        };
+        setChatMessages(currentMessages => [...currentMessages, aiResponse]);
+      } catch (error) {
+        console.error('Error fetching response:', error);
+        setError('Failed to fetch response');
+      }
+      setIsLoading(false);
     }
     setText('');
-  }, []); 
+  }, []);
 
 
   useEffect(() => {
@@ -57,8 +79,8 @@ function App() {
       clearTimeout(timer.current);
     };
   }, [submitMessage]);
-  
-  
+
+
   const toggleListen = () => {
     if (listening) {
       recognition.stop();
@@ -91,6 +113,7 @@ function App() {
         </div>
         <ChatLog messages={chatMessages} />
       </div>
+      {isLoading && <p>Loading...</p>}
     </div>
   );
 }
