@@ -3,6 +3,7 @@ import TextareaAutosize from 'react-textarea-autosize';
 import ListenButton from './components/listen_button/listen_button';
 import SubmitButton from './components/submit_button/submit_button';
 import ChatLog from './components/chat_log/chat_log';
+import DOMPurify from 'dompurify';
 import './App.css';
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -18,14 +19,20 @@ function App() {
   const timer = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const formatText = (text) => {
+    return text.replace(/\n/g, '<br>').replace(/ /g, '&nbsp;');
+  };
+
   const submitMessage = useCallback(async (submittedText) => {
     if (submittedText.trim()) {
+      const formattedText = formatText(submittedText);
       const userMessage = {
-        text: submittedText,
+        text: formattedText, // Use formatted text
         timestamp: new Date(),
         sender: "Sir"
       };
       setChatMessages(currentMessages => [...currentMessages, userMessage]);
+      setText('');
 
       setIsLoading(true);
       try {
@@ -35,7 +42,6 @@ function App() {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ message: submittedText }),
-          
         });
 
         if (!response.ok) {
@@ -44,51 +50,92 @@ function App() {
 
         const data = await response.json();
         console.log("Received data from backend:", data);
+
+        const sanitizedReply = DOMPurify.sanitize(data.reply);
         const aiResponse = {
-          text: data.reply,
+          text: sanitizedReply,
           timestamp: new Date(),
           sender: "JARVIS"
         };
         setChatMessages(currentMessages => [...currentMessages, aiResponse]);
       } catch (error) {
         console.error('Error fetching response:', error);
-        setError('Failed to fetch response');
+        const sanitizedErrorMessage = DOMPurify.sanitize('Failed to fetch response. Please try again later.');
+        const errorMessage = {
+          text: sanitizedErrorMessage,
+          timestamp: new Date(),
+          sender: "JARVIS"
+        };
+        setChatMessages(currentMessages => [...currentMessages, errorMessage]);
       }
       setIsLoading(false);
     }
-    setText('');
   }, []);
 
 
   useEffect(() => {
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map(result => result[0].transcript)
-        .join('');
-      setText(transcript);
-
-      clearTimeout(timer.current);
-      timer.current = setTimeout(() => submitMessage(transcript), 5000);
+    const updateScrollableItemHeight = () => {
+      const listenAreaHeight = document.querySelector('.listen-area').offsetHeight;
+      const scrollableItem = document.querySelector('.chat-messages-area');
+      const scrollbarBuffer = 20; // Buffer for scrollbar
+      const availableHeight = window.innerHeight - listenAreaHeight - scrollbarBuffer;
+      scrollableItem.style.maxHeight = `${availableHeight}px`;
     };
 
-    recognition.onend = () => setListening(false);
-    recognition.onerror = (event) => setError(event.error);
+    window.addEventListener('resize', updateScrollableItemHeight);
+    updateScrollableItemHeight(); // Initial call to set height
 
     return () => {
-      recognition.stop();
-      clearTimeout(timer.current);
+      window.removeEventListener('resize', updateScrollableItemHeight);
     };
-  }, [submitMessage]);
+  }, []);
 
 
-  const toggleListen = () => {
+  useEffect(() => {
+  recognition.onresult = (event) => {
+    const transcript = Array.from(event.results)
+      .map(result => result[0].transcript)
+      .join('');
+    setText(transcript);
+
     if (listening) {
-      recognition.stop();
-    } else {
-      recognition.start();
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        if (listening) {
+          recognition.stop(); // Stop listening after 5 seconds of silence
+          submitMessage(transcript); // Submit the message
+          setText(''); // Clear the text area
+        }
+      }, 5000);
     }
-    setListening(!listening);
   };
+
+  recognition.onend = () => {
+    setListening(false);
+    clearTimeout(timer.current);
+  };
+
+  recognition.onerror = (event) => setError(event.error);
+
+  return () => {
+    recognition.stop();
+    clearTimeout(timer.current);
+  };
+}, [submitMessage, listening]);
+
+const toggleListen = () => {
+  if (listening) {
+    recognition.stop();
+    clearTimeout(timer.current); // Clear the timeout when manually stopping
+  } else {
+    recognition.start();
+    setListening(true);
+  }
+};
+
+  
+  
+  
 
   return (
     <div className="main-container">
@@ -103,15 +150,24 @@ function App() {
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Start speaking..."
                 minRows={1}
+                maxRows={10}
                 style={{ width: '100%' }}
               />
               <ListenButton onClick={toggleListen} listening={listening} />
             </div>
-            <SubmitButton onClick={() => submitMessage(text)} />
+            <SubmitButton onClick={() => {
+              clearTimeout(timer.current); // Clear the timeout
+              submitMessage(text);
+            }} />
           </form>
           {error && <p>Error: {error}</p>}
         </div>
-        <ChatLog messages={chatMessages} />
+        <div className="chat-messages-area">
+          <ChatLog messages={chatMessages.map(msg => ({
+            ...msg,
+            text: <div dangerouslySetInnerHTML={{ __html: msg.text }} />
+          }))} />
+        </div>
       </div>
       {isLoading && <p>Loading...</p>}
     </div>

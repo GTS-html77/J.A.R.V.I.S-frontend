@@ -1,13 +1,25 @@
 .main-container {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr; /* Three equal columns */
-  height: 100vh; /* Full viewport height */
+  grid-template-columns: 1fr 2fr 1fr;
+  height: 100vh;
+  overflow: hidden;
+  
 }
 
 .right-column {
   display: grid;
-  grid-template-rows: auto 1fr; /* First row auto-sized, second row takes remaining space */
+  grid-template-rows: minmax(auto, max-content) 1fr;
+  height: 100%;
 }
+
+.chat-messages-area {
+  overflow-y: auto;
+  min-height: 0; /* This ensures that the grid item can be smaller than its content */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  box-sizing: border-box;
+}
+
 
 .listen-area {
   border: 1px solid #ccc;
@@ -18,7 +30,7 @@
   flex-direction: column;
 }
 
-.form-row {
+.listen-area .form-row {
   display: flex;
   align-items: flex-start;
   width: 100%;
@@ -29,7 +41,7 @@
 .listen-area textarea {
   flex-grow: 1;
   padding: 10px;
-  overflow: hidden;
+  overflow: auto;
   resize: none;
   font-size: 1rem;
   border: 1px solid #ccc;
@@ -44,3 +56,4 @@
   /*white-space: nowrap; */
   flex-shrink: 0;
 }
+
