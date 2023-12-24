@@ -17,60 +17,133 @@ function App() {
   const [listening, setListening] = useState(false);
   const [error, setError] = useState('');
   const timer = useRef(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const ws = useRef(null);
+  const audioQueue = useRef([]); // Queue for audio blobs
+  const isAudioPlaying = useRef(false); // Ref to track if audio is currently playing
 
   const formatText = (text) => {
-    return text.replace(/\n/g, '<br>').replace(/ /g, '&nbsp;');
+    return text.replace(/\n/g, '<br>');
   };
 
+
+  const resetRecognition = () => {
+    if (recognition) {
+      recognition.onend = () => {
+        recognition.start(); // Start a new session only after the current one has ended
+      };
+      recognition.stop(); // Stop the current session
+    }
+  };
+
+  const playNextAudio = useCallback(() => {
+    if (audioQueue.current.length > 0 && !isAudioPlaying.current) {
+      const nextAudioBlob = audioQueue.current.shift(); // Get the next audio blob from the queue
+      console.log(`Playing audio. Queue length: ${audioQueue.current.length}`);
+      const audioUrl = URL.createObjectURL(nextAudioBlob);
+      const audio = new Audio(audioUrl);
+      isAudioPlaying.current = true;
+      audio.play();
+      audio.onended = () => {
+        console.log('Audio ended.');
+        isAudioPlaying.current = false;
+        playNextAudio(); // Play next audio when current one ends
+      };
+    }
+  }, []);
+
+  const sendElevenLabsSentence = useCallback(async (fullSentence) => {
+    console.log(`Sending sentence to ElevenLabs: ${fullSentence}`);
+    const startTime = performance.now();
+    const voiceId = 'JVIMwpj84Lu2xX9j2NRf';
+    const modelId = 'eleven_turbo_v2';
+    const apiKey = '7572df870f36d7a01477c217973ea736';
+
+    const options = {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        voice_settings: { similarity_boost: 0.9, stability: 0.3 },
+        model_id: modelId,
+        text: fullSentence,
+      })
+    };
+
+    try {
+      const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}/stream`, options);
+      const endTime = performance.now();
+      console.log(`Received response from ElevenLabs in ${(endTime - startTime).toFixed(2)} ms`);
+
+      const audioStream = await response.blob();
+      audioQueue.current.push(audioStream);
+      console.log(`Queued audio. Current queue length: ${audioQueue.current.length}`);
+      playNextAudio(); // Attempt to play audio
+    } catch (err) {
+      console.error(`Error in sending sentence to ElevenLabs: ${err}`);
+    }
+  }, [playNextAudio]);
+
+  useEffect(() => {
+    let accumulatedResponse = ''; // Local variable for accumulating responses
+
+    ws.current = new WebSocket('ws://localhost:3001');
+
+    ws.current.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.reply) {
+        const sanitizedReply = DOMPurify.sanitize(data.reply);
+        accumulatedResponse += sanitizedReply;
+
+        if (/[.!?]/.test(accumulatedResponse.slice(-1))) {
+          sendElevenLabsSentence(accumulatedResponse);
+          console.log('Sentence sent:', accumulatedResponse);
+          accumulatedResponse = ''; // Reset the local accumulated response
+        }
+
+        setChatMessages(currentMessages => {
+          // If the last message is from JARVIS, append the new content
+          if (currentMessages.length && currentMessages[currentMessages.length - 1].sender === "JARVIS") {
+            let lastMessage = { ...currentMessages[currentMessages.length - 1] };
+            lastMessage.text += sanitizedReply; // Append without a line break
+            return [...currentMessages.slice(0, -1), lastMessage];
+          } else {
+            // Otherwise, add a new message
+            return [...currentMessages, {
+              text: sanitizedReply,
+              timestamp: new Date(),
+              sender: "JARVIS"
+            }];
+          }
+        });
+      }
+    };
+
+    return () => {
+      if (ws.current) {
+        ws.current.close();
+      }
+    };
+  }, [sendElevenLabsSentence]);
+
+
   const submitMessage = useCallback(async (submittedText) => {
-    if (submittedText.trim()) {
+    if (submittedText.trim() && ws.current) {
       const formattedText = formatText(submittedText);
       const userMessage = {
-        text: formattedText, // Use formatted text
+        text: formattedText,
         timestamp: new Date(),
         sender: "Sir"
       };
       setChatMessages(currentMessages => [...currentMessages, userMessage]);
       setText('');
 
-      setIsLoading(true);
-      try {
-        const response = await fetch('http://localhost:3001/api/chat/message', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ message: submittedText }),
-        });
-
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-
-        const data = await response.json();
-        console.log("Received data from backend:", data);
-
-        const sanitizedReply = DOMPurify.sanitize(data.reply);
-        const aiResponse = {
-          text: sanitizedReply,
-          timestamp: new Date(),
-          sender: "JARVIS"
-        };
-        setChatMessages(currentMessages => [...currentMessages, aiResponse]);
-      } catch (error) {
-        console.error('Error fetching response:', error);
-        const sanitizedErrorMessage = DOMPurify.sanitize('Failed to fetch response. Please try again later.');
-        const errorMessage = {
-          text: sanitizedErrorMessage,
-          timestamp: new Date(),
-          sender: "JARVIS"
-        };
-        setChatMessages(currentMessages => [...currentMessages, errorMessage]);
-      }
-      setIsLoading(false);
+      // Send the message through WebSocket
+      ws.current.send(submittedText);
     }
   }, []);
+
 
 
   useEffect(() => {
@@ -92,50 +165,78 @@ function App() {
 
 
   useEffect(() => {
-  recognition.onresult = (event) => {
-    const transcript = Array.from(event.results)
-      .map(result => result[0].transcript)
-      .join('');
-    setText(transcript);
+    recognition.onresult = (event) => {
+      if (!listening) {
+        return; // Ignore results if not listening
+      }
 
-    if (listening) {
+      const transcript = Array.from(event.results)
+        .map(result => result[0].transcript)
+        .join('');
+      setText(transcript);
+
+      if (listening) {
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => {
+          submitMessage(transcript);
+          resetRecognition(); // Reset the recognition to clear the transcript
+        }, 2000); // Submit message after 2 seconds of silence
+      }
+    };
+
+    recognition.onend = () => {
+      setListening(false);
       clearTimeout(timer.current);
-      timer.current = setTimeout(() => {
-        if (listening) {
-          recognition.stop(); // Stop listening after 5 seconds of silence
-          submitMessage(transcript); // Submit the message
-          setText(''); // Clear the text area
-        }
-      }, 5000);
+      console.log('Recognition ended');
+    };
+
+
+
+    recognition.onerror = (event) => {
+      setError(event.error);
+    };
+
+
+  }, [submitMessage, listening, setText]);
+
+  recognition.onerror = (event) => {
+    if (event.error === "no-speech") {
+      // Ignore the "no-speech" error, don't do anything
+      console.log("No speech detected, ignoring the error."); // Optional: log for debugging
+    } else {
+      setError(event.error); // Handle other errors as usual
     }
   };
 
-  recognition.onend = () => {
-    setListening(false);
-    clearTimeout(timer.current);
+
+  const toggleListen = () => {
+    console.log('toggleListen - before:', listening);
+    if (listening) {
+      // Stop recognition and wait for it to end before allowing it to start again
+      recognition.stop();
+      console.log('toggleListen - stopping');
+      setListening(false);
+    } else {
+      // Start recognition only if it's not already in progress
+      if (!recognition || recognition.state !== 'active') {
+        recognition.start();
+        setText(''); // Clear the text when starting new listening
+        setListening(true);
+        console.log('toggleListen - started');
+      }
+    }
   };
 
-  recognition.onerror = (event) => setError(event.error);
 
-  return () => {
-    recognition.stop();
-    clearTimeout(timer.current);
+
+
+  const handleManualSubmit = () => {
+    clearTimeout(timer.current); // Clear the timeout
+    submitMessage(text);
   };
-}, [submitMessage, listening]);
 
-const toggleListen = () => {
-  if (listening) {
-    recognition.stop();
-    clearTimeout(timer.current); // Clear the timeout when manually stopping
-  } else {
-    recognition.start();
-    setListening(true);
-  }
-};
 
-  
-  
-  
+
 
   return (
     <div className="main-container">
@@ -155,10 +256,7 @@ const toggleListen = () => {
               />
               <ListenButton onClick={toggleListen} listening={listening} />
             </div>
-            <SubmitButton onClick={() => {
-              clearTimeout(timer.current); // Clear the timeout
-              submitMessage(text);
-            }} />
+            <SubmitButton onClick={handleManualSubmit} disabled={listening} />
           </form>
           {error && <p>Error: {error}</p>}
         </div>
@@ -169,7 +267,7 @@ const toggleListen = () => {
           }))} />
         </div>
       </div>
-      {isLoading && <p>Loading...</p>}
+
     </div>
   );
 }

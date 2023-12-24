@@ -4,4 +4,12 @@
     border-radius: 20px;
     border-width: 0px;
     padding: 8px 20px;
+    cursor: pointer; 
+}
+
+/* Styling for disabled state */
+.submit-button:disabled {
+    background-color: #c0c0c0; /* Greyed out background */
+    color: #6c757d; /* Dimmed text color */
+    cursor: not-allowed; /* Changes cursor to indicate it's not clickable */
 }
